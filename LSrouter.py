@@ -99,15 +99,53 @@ class LSrouter(Router):
             self.last_time = time_ms
             # TODO
             #   broadcast the link state of this router to all neighbors
-            pass
+            self.broadcast_lsp()
+
     def broadcast_lsp(self):
-        pass
+        neighbors = {n: c for n, (p, c) in self.links_info.items()}
+        content = json.dumps({
+            "seq": self.seq_num,
+            "neighbors": neighbors
+        })
+        for neighbor, (port, _) in self.links_info.items():
+            packet = Packet(Packet.ROUTING, self.addr, neighbor, content=content)
+            self.send(port, packet)
 
     def recompute_forwarding_table(self):
-        pass
+        import heapq
+        graph = {}
+        for router, (_, nbrs) in self.lsdb.items():
+            graph[router] = nbrs.copy()
+
+        dist = {self.addr: 0}
+        prev = {}
+        heap = [(0, self.addr)]
+
+        while heap:
+            d, u = heapq.heappop(heap)
+            if d > dist.get(u, float('inf')):
+                continue
+            for v, cost in graph.get(u, {}).items():
+                alt = dist[u] + cost
+                if alt < dist.get(v, float('inf')):
+                    dist[v] = alt
+                    prev[v] = u
+                    heapq.heappush(heap, (alt, v))
+
+        new_table = {}
+        for dest in dist:
+            if dest == self.addr:
+                continue
+            hop = dest
+            while prev.get(hop) != self.addr:
+                hop = prev[hop]
+            if hop in self.links_info:
+                new_table[dest] = self.links_info[hop][0]  # port
+
+        self.forwarding_table = new_table
 
     def __repr__(self):
         """Representation for debugging in the network visualizer."""
         # TODO
         #   NOTE This method is for your own convenience and will not be graded
-        return f"LSrouter(addr={self.addr})"
+        return f"LSrouter(addr={self.addr}, table={self.forwarding_table})"
